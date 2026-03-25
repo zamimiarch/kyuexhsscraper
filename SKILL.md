@@ -15,8 +15,9 @@ Keep the workflow thin:
 
 ## Quick Start
 
-Repository location in this workspace:
-- `/root/.openclaw/workspace/tmp/XHS-Downloader`
+Default upstream checkout location after install:
+- `vendor/XHS-Downloader`
+- Override with `XHS_DOWNLOADER_DIR=/path/to/XHS-Downloader` if needed
 
 Skill helper scripts:
 - `scripts/install.sh` — install dependencies with `uv` if available, else local venv
@@ -40,9 +41,11 @@ bash scripts/install.sh
 ```
 
 Notes:
+- This clones the upstream downloader into `vendor/XHS-Downloader` if it is not already present
 - Prefer `uv sync --no-dev` when `uv` exists
-- Fallback to `python3 -m pip install -r requirements.txt`
+- Fallback to a local `.venv` with `pip install -r requirements.txt`
 - Do not global-install Python packages unless necessary
+- Applies the known upstream syntax patch automatically if needed
 
 ### 2. Start API mode
 
@@ -130,8 +133,8 @@ Validated locally in this environment:
 
 ## Known Limitations
 
-- Upstream source required one local syntax fix; see `references/upstream-patch.md`
-- Cookie-less runs may return incomplete data or lower-quality media on some posts
+- Installer auto-applies one known upstream syntax fix when present; see `references/upstream-patch.md`
+- Cookie-less runs may return incomplete data, lower-quality media, or outright fetch failures on some posts
 - Batch helper currently emits JSON arrays only; CSV/JSONL can be added later if needed
 - Download mode is supported by upstream API, but should be verified separately when file persistence matters
 
