@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+from json import loads
+from typing import Any
+from urllib.parse import urlparse, parse_qs
+
+from ..expansion import Namespace
+
+__all__ = ["Comments"]
+
+
+class Comments:
+    IMAGE_FORMATS = "jpg,webp,avif"
+
+    def __init__(self, manager, html):
+        self.manager = manager
+        self.html = html
+
+    @staticmethod
+    def extract_xsec_token(url: str) -> str:
+        query = parse_qs(urlparse(url).query)
+        values = query.get("xsec_token") or query.get("xsecToken") or []
+        return values[0] if values else ""
+
+    @staticmethod
+    def parse_json(text: str) -> dict[str, Any]:
+        try:
+            data = loads(text)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    async def fetch_page(
+        self,
+        note_id: str,
+        cursor: str = "",
+        top_comment_id: str = "",
+        xsec_token: str = "",
+        cookie: str | None = None,
+        proxy: str | None = None,
+    ) -> dict[str, Any]:
+        params = {
+            "note_id": note_id,
+            "cursor": cursor,
+            "top_comment_id": top_comment_id,
+            "image_formats": self.IMAGE_FORMATS,
+        }
+        if xsec_token:
+            params["xsec_token"] = xsec_token
+        url = "https://edith.xiaohongshu.com/api/sns/web/v2/comment/page"
+        text = await self.html.request_url(
+            url,
+            content=True,
+            cookie=cookie,
+            proxy=proxy,
+            params=params,
+        )
+        return self.parse_json(text)
+
+    async def fetch_sub_page(
+        self,
+        note_id: str,
+        root_comment_id: str,
+        cursor: str = "",
+        num: int = 10,
+        xsec_token: str = "",
+        cookie: str | None = None,
+        proxy: str | None = None,
+    ) -> dict[str, Any]:
+        params = {
+            "note_id": note_id,
+            "root_comment_id": root_comment_id,
+            "num": num,
+            "cursor": cursor,
+        }
+        if xsec_token:
+            params["xsec_token"] = xsec_token
+        url = "https://edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"
+        text = await self.html.request_url(
+            url,
+            content=True,
+            cookie=cookie,
+            proxy=proxy,
+            params=params,
+        )
+        return self.parse_json(text)
+
+    @staticmethod
+    def _as_list(value) -> list:
+        return value if isinstance(value, list) else []
+
+    @classmethod
+    def normalize_comment(cls, item: dict, note_id: str) -> dict[str, Any]:
+        ns = Namespace(item)
+        user = ns.safe_extract("userInfo", {}) or {}
+        return {
+            "comment_id": ns.safe_extract("id") or ns.safe_extract("commentId"),
+            "note_id": note_id,
+            "content": ns.safe_extract("content") or ns.safe_extract("text") or "",
+            "like_count": ns.safe_extract("likeCount", 0),
+            "create_time": ns.safe_extract("createTime"),
+            "ip_location": ns.safe_extract("ipLocation") or "",
+            "user_id": Namespace.object_extract(user, "userId") if hasattr(user, '__dict__') else "",
+            "nickname": Namespace.object_extract(user, "nickname") if hasattr(user, '__dict__') else "",
+            "sub_comment_count": ns.safe_extract("subCommentCount", 0),
+            "pictures": cls._as_list(ns.safe_extract("pictures", [])),
+            "raw": item,
+        }
+
+    async def fetch_all(
+        self,
+        note_id: str,
+        note_url: str,
+        cookie: str | None = None,
+        proxy: str | None = None,
+        limit: int = 200,
+        fetch_sub_comments: bool = True,
+    ) -> dict[str, Any]:
+        xsec_token = self.extract_xsec_token(note_url)
+        cursor = ""
+        comments = []
+        pages = 0
+        has_more = True
+        while has_more and len(comments) < limit:
+            payload = await self.fetch_page(
+                note_id=note_id,
+                cursor=cursor,
+                xsec_token=xsec_token,
+                cookie=cookie,
+                proxy=proxy,
+            )
+            pages += 1
+            if not payload:
+                return {
+                    "ok": False,
+                    "reason": "empty_response",
+                    "pages": pages,
+                    "comments": comments,
+                }
+            if payload.get("success") is False:
+                return {
+                    "ok": False,
+                    "reason": payload.get("msg") or payload.get("message") or "api_error",
+                    "pages": pages,
+                    "comments": comments,
+                    "raw": payload,
+                }
+            data = payload.get("data") or {}
+            items = self._as_list(data.get("comments"))
+            for item in items:
+                entry = self.normalize_comment(item, note_id)
+                if fetch_sub_comments and entry.get("sub_comment_count"):
+                    entry["sub_comments"] = await self.fetch_all_sub_comments(
+                        note_id=note_id,
+                        root_comment_id=entry["comment_id"],
+                        note_url=note_url,
+                        cookie=cookie,
+                        proxy=proxy,
+                    )
+                comments.append(entry)
+                if len(comments) >= limit:
+                    break
+            cursor = data.get("cursor") or ""
+            has_more = bool(data.get("has_more")) and bool(cursor)
+            if not items:
+                break
+        return {
+            "ok": True,
+            "reason": "success",
+            "pages": pages,
+            "count": len(comments),
+            "comments": comments,
+        }
+
+    async def fetch_all_sub_comments(
+        self,
+        note_id: str,
+        root_comment_id: str,
+        note_url: str,
+        cookie: str | None = None,
+        proxy: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        xsec_token = self.extract_xsec_token(note_url)
+        cursor = ""
+        results = []
+        has_more = True
+        while has_more and len(results) < limit:
+            payload = await self.fetch_sub_page(
+                note_id=note_id,
+                root_comment_id=root_comment_id,
+                cursor=cursor,
+                xsec_token=xsec_token,
+                cookie=cookie,
+                proxy=proxy,
+            )
+            if not payload or payload.get("success") is False:
+                break
+            data = payload.get("data") or {}
+            items = self._as_list(data.get("comments"))
+            for item in items:
+                results.append(self.normalize_comment(item, note_id))
+                if len(results) >= limit:
+                    break
+            cursor = data.get("cursor") or ""
+            has_more = bool(data.get("has_more")) and bool(cursor)
+            if not items:
+                break
+        return results

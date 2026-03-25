@@ -24,6 +24,7 @@ Skill helper scripts:
 - `scripts/start_api.sh` — start API mode on port `5556`
 - `scripts/call_detail.py` — call `/xhs/detail` for a single URL
 - `scripts/call_batch.py` — process many URLs from repeated flags, file input, or pasted text blobs
+- `scripts/test_comments.py` — resolve a note URL and fetch comments via the local code path
 
 Default local API:
 - Base URL: `http://127.0.0.1:5556`
@@ -130,11 +131,14 @@ Validated locally in this environment:
 - Resolve `xhslink.com` short links
 - Fetch post metadata successfully
 - Extract media download URLs from a real Xiaohongshu post
+- Resolve short links to comment-capable `discovery/item/...?...xsec_token=...` URLs
+- Reach the real comment API path and handle authenticated/unauthenticated outcomes correctly
 
 ## Known Limitations
 
 - Installer auto-applies one known upstream syntax fix when present; see `references/upstream-patch.md`
 - Cookie-less runs may return incomplete data, lower-quality media, or outright fetch failures on some posts
+- Comment retrieval is more restrictive than note metadata and typically requires a valid logged-in cookie
 - Batch helper currently emits JSON arrays only; CSV/JSONL can be added later if needed
 - Download mode is supported by upstream API, but should be verified separately when file persistence matters
 
@@ -168,6 +172,7 @@ Read these only if needed:
 - `start_api.sh`
 - `call_detail.py`
 - `call_batch.py`
+- `test_comments.py`
 
 ### references/
 - `upstream-notes.md`
